@@ -157,7 +157,9 @@ module hart #(
     wire[4:0] rd_addr = inst[11:7];
 
     wire reg_wen, alu_src1, alu_src2, mem_ren, mem_wen, branch, jump, jalr, halt;
-    wire[3:0] alu_op;
+    wire[2:0] alu_opsel;
+    wire alu_sub, alu_unsigned, alu_arith;
+    wire[5:0] imm_format;
     wire[1:0] wb_mux;
 
     control_unit ctrl (
@@ -167,7 +169,11 @@ module hart #(
         .o_reg_wen(reg_wen),
         .o_alu_src1(alu_src1),
         .o_alu_src2(alu_src2),
-        .o_alu_op(alu_op),
+        .o_alu_opsel(alu_opsel),
+        .o_alu_sub(alu_sub),
+        .o_alu_unsigned(alu_unsigned),
+        .o_alu_arith(alu_arith),
+        .o_imm_format(imm_format),
         .o_mem_ren(mem_ren),
         .o_mem_wen(mem_wen),
         .o_wb_mux(wb_mux),
@@ -178,48 +184,53 @@ module hart #(
     );
 
     wire[31:0] imm;
-    imm_gen imm_g (
+    imm imm_g (
         .i_inst(inst),
-        .o_imm(imm)
+        .i_format(imm_format),
+        .o_immediate(imm)
     );
 
     wire[31:0] rs1_data, rs2_data;
     reg[31:0] rd_data;
-    regfile rf (
+    rf rf_inst (
         .i_clk(i_clk),
         .i_rst(i_rst),
-        .i_rs1_addr(rs1_addr),
-        .i_rs2_addr(rs2_addr),
-        .i_rd_addr(rd_addr),
-        .i_rd_data(rd_data),
-        .i_rd_wen(reg_wen),
-        .o_rs1_data(rs1_data),
-        .o_rs2_data(rs2_data)
+        .i_rs1_raddr(rs1_addr),
+        .o_rs1_rdata(rs1_data),
+        .i_rs2_raddr(rs2_addr),
+        .o_rs2_rdata(rs2_data),
+        .i_rd_waddr(rd_addr),
+        .i_rd_wdata(rd_data),
+        .i_rd_wen(reg_wen)
     );
 
     // Execute
     wire[31:0] alu_op_a = (alu_src1) ? pc : rs1_data;
     wire[31:0] alu_op_b = (alu_src2) ? imm : rs2_data;
     wire[31:0] alu_result;
-    wire alu_zero;
+    wire alu_eq, alu_slt;
     alu alu_inst (
-        .i_a(alu_op_a),
-        .i_b(alu_op_b),
-        .i_alu_op(alu_op),
+        .i_opsel(alu_opsel),
+        .i_sub(alu_sub),
+        .i_unsigned(alu_unsigned),
+        .i_arith(alu_arith),
+        .i_op1(alu_op_a),
+        .i_op2(alu_op_b),
         .o_result(alu_result),
-        .o_zero(alu_zero)
+        .o_eq(alu_eq),
+        .o_slt(alu_slt)
     );
 
     // Branch/Jump Logic
     reg take_branch;
     always @(*) begin
         case (funct3)
-            3'b000: take_branch = alu_zero; // beq
-            3'b001: take_branch = !alu_zero; // bne
-            3'b100: take_branch = !alu_zero; // blt
-            3'b101: take_branch = alu_zero; // bge
-            3'b110: take_branch = !alu_zero; // bltu
-            3'b111: take_branch = alu_zero; // bgeu
+            3'b000: take_branch = alu_eq; // beq
+            3'b001: take_branch = !alu_eq; // bne
+            3'b100: take_branch = alu_slt; // blt
+            3'b101: take_branch = !alu_slt; // bge
+            3'b110: take_branch = alu_slt; // bltu
+            3'b111: take_branch = !alu_slt; // bgeu
             default: take_branch = 0;
         endcase
     end
