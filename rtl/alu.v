@@ -1,9 +1,9 @@
 module alu (
-    input  wire[31:0] i_a,
-    input  wire[31:0] i_b,
-    input  wire[3:0]  i_alu_op,
+    input wire[31:0] i_a,
+    input wire[31:0] i_b,
+    input wire[3:0] i_alu_op,
     output reg [31:0] o_result,
-    output wire       o_zero
+    output wire o_zero
 );
     // ALU arithmetic operations
     localparam ALU_ADD = 4'd0;
@@ -19,9 +19,9 @@ module alu (
 
     always @(*) begin
         case (i_alu_op)
-            ALU_ADD:  o_result = i_a + i_b;
-            ALU_SUB:  o_result = i_a - i_b;
-            ALU_SLL:  begin
+            ALU_ADD: o_result = i_a + i_b;
+            ALU_SUB: o_result = i_a - i_b;
+            ALU_SLL: begin
                 case (i_b[4:0])
                     5'd0: o_result = i_a;
                     5'd1: o_result = {i_a[30:0], 1'b0};
@@ -58,10 +58,10 @@ module alu (
                     default: o_result = i_a;
                 endcase
             end
-            ALU_SLT:  o_result = (i_a[31] != i_b[31]) ? (i_a[31] ? 32'd1 : 32'd0) : (i_a < i_b ? 32'd1 : 32'd0);
+            ALU_SLT: o_result = (i_a[31] != i_b[31]) ? (i_a[31] ? 32'd1 : 32'd0) : (i_a < i_b ? 32'd1 : 32'd0);
             ALU_SLTU: o_result = (i_a < i_b) ? 32'd1 : 32'd0;
-            ALU_XOR:  o_result = i_a ^ i_b;
-            ALU_SRL:  begin
+            ALU_XOR: o_result = i_a ^ i_b;
+            ALU_SRL: begin
                 case (i_b[4:0])
                     5'd0: o_result = i_a;
                     5'd1: o_result = {1'b0, i_a[31:1]};
@@ -98,7 +98,7 @@ module alu (
                     default: o_result = i_a;
                 endcase
             end
-            ALU_SRA:  begin
+            ALU_SRA: begin
                 case (i_b[4:0])
                     5'd0: o_result = i_a;
                     5'd1: o_result = {{1{i_a[31]}}, i_a[31:1]};
@@ -135,9 +135,9 @@ module alu (
                     default: o_result = i_a;
                 endcase
             end
-            ALU_OR:   o_result = i_a | i_b;
-            ALU_AND:  o_result = i_a & i_b;
-            default:  o_result = 32'd0;
+            ALU_OR: o_result = i_a | i_b;
+            ALU_AND: o_result = i_a & i_b;
+            default: o_result = 32'd0;
         endcase
     end
 

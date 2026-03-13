@@ -1,6 +1,6 @@
 module imm_gen (
-    input  wire[31:0] i_inst,
-    output reg[31:0]  o_imm
+    input wire[31:0] i_inst,
+    output reg[31:0] o_imm
 );
     // Extract opcode from instruction
     wire[6:0] opcode = i_inst[6:0];

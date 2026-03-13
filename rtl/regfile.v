@@ -1,13 +1,13 @@
 module regfile #(
     parameter BYPASS_EN = 0
 ) (
-    input  wire       i_clk,
-    input  wire       i_rst,
-    input  wire[4:0]  i_rs1_addr,
-    input  wire[4:0]  i_rs2_addr,
-    input  wire[4:0]  i_rd_addr,
-    input  wire[31:0] i_rd_data,
-    input  wire       i_rd_wen,
+    input wire i_clk,
+    input wire i_rst,
+    input wire[4:0] i_rs1_addr,
+    input wire[4:0] i_rs2_addr,
+    input wire[4:0] i_rd_addr,
+    input wire[31:0] i_rd_data,
+    input wire i_rd_wen,
     output wire[31:0] o_rs1_data,
     output wire[31:0] o_rs2_data
 );
