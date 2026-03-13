@@ -6,10 +6,10 @@ module control_unit (
     output reg       o_alu_src1, // 0: rs1, 1: pc
     output reg       o_alu_src2, // 0: rs2, 1: imm
     output reg[2:0]  o_alu_opsel, // ALU operation selection
-    output reg       o_alu_sub,   // ALU subtraction
+    output reg       o_alu_sub,  // ALU subtraction
     output reg       o_alu_unsigned, // ALU unsigned comparison
     output reg       o_alu_arith, // ALU arithmetic right shift
-    output reg[5:0]  o_imm_format,// Instruction format for imm gen
+    output reg[5:0]  o_imm_format, // Instruction format for imm gen
     output reg       o_mem_ren,  // 0: don't read memory, 1: read memory
     output reg       o_mem_wen,  // 0: don't write memory, 1: write memory
     output reg[1:0]  o_wb_mux,   // Write back: 0: ALU, 1: Mem, 2: PC+4, 3: Imm

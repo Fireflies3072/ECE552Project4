@@ -124,7 +124,15 @@ module hart #(
     // the next program counter after the instruction is retired. For most
     // instructions, this is `o_retire_pc + 4`, but must be the branch or jump
     // target for *taken* branches and jumps.
-    output wire [31:0] o_retire_next_pc
+    output wire [31:0] o_retire_next_pc,
+
+    // Data memory retired output
+    output wire [31:0] o_retire_dmem_addr,
+    output wire o_retire_dmem_ren,
+    output wire o_retire_dmem_wen,
+    output wire [3:0] o_retire_dmem_mask,
+    output wire [31:0] o_retire_dmem_wdata,
+    output wire [31:0] o_retire_dmem_rdata
 
 `ifdef RISCV_FORMAL
     ,`RVFI_OUTPUTS,
@@ -132,255 +140,368 @@ module hart #(
 );
     // Fill in your implementation here.
 
-    // PC Register
-    reg[31:0] pc;
-    wire[31:0] next_pc;
+    // IF stage
+    reg[31:0] if_pc;
+    wire[31:0] if_inst;
+    wire[31:0] if_pc_plus_4;
 
+    if_stage if_stage_inst (
+        .i_pc(if_pc),
+        .i_imem_rdata(i_imem_rdata),
+        .o_imem_raddr(o_imem_raddr),
+        .o_inst(if_inst),
+        .o_pc_plus_4(if_pc_plus_4)
+    );
+
+    // IF/ID pipeline register
+    reg if_id_valid;
+    reg[31:0] if_id_pc;
+    reg[31:0] if_id_inst;
+
+    // ID stage
+    wire[4:0] id_rs1_addr, id_rs2_addr, id_rd_addr;
+    wire[2:0] id_funct3;
+    wire[31:0] id_imm;
+
+    wire[31:0] id_rs1_data, id_rs2_data;
+    wire[2:0] id_alu_opsel;
+    wire[1:0] id_wb_mux;
+    wire id_reg_wen, id_alu_src1, id_alu_src2, id_alu_sub, id_alu_unsigned, id_alu_arith;
+    wire id_mem_ren, id_mem_wen, id_branch, id_jump, id_jalr, id_halt;
+    wire id_uses_rs1, id_uses_rs2;
+
+    wire[31:0] wb_rd_data;
+    wire[4:0] wb_rd_addr;
+    wire wb_reg_wen;
+
+    id_stage id_stage_inst (
+        .i_clk(i_clk),
+        .i_rst(i_rst),
+        .i_inst(if_id_inst),
+        .i_wb_rd_addr(wb_rd_addr),
+        .i_wb_rd_data(wb_rd_data),
+        .i_wb_reg_wen(wb_reg_wen),
+        .o_rs1_addr(id_rs1_addr),
+        .o_rs2_addr(id_rs2_addr),
+        .o_rd_addr(id_rd_addr),
+        .o_funct3(id_funct3),
+        .o_imm(id_imm),
+        .o_rs1_data(id_rs1_data),
+        .o_rs2_data(id_rs2_data),
+        .o_alu_opsel(id_alu_opsel),
+        .o_wb_mux(id_wb_mux),
+        .o_reg_wen(id_reg_wen),
+        .o_alu_src1(id_alu_src1),
+        .o_alu_src2(id_alu_src2),
+        .o_alu_sub(id_alu_sub),
+        .o_alu_unsigned(id_alu_unsigned),
+        .o_alu_arith(id_alu_arith),
+        .o_mem_ren(id_mem_ren),
+        .o_mem_wen(id_mem_wen),
+        .o_branch(id_branch),
+        .o_jump(id_jump),
+        .o_jalr(id_jalr),
+        .o_halt(id_halt),
+        .o_uses_rs1(id_uses_rs1),
+        .o_uses_rs2(id_uses_rs2)
+    );
+
+    // ID/EX pipeline register
+    reg        id_ex_valid;
+    reg [31:0] id_ex_pc;
+    reg [31:0] id_ex_inst;
+    reg [31:0] id_ex_next_pc_seq;
+    reg [31:0] id_ex_imm;
+    reg [31:0] id_ex_rs1_data;
+    reg [31:0] id_ex_rs2_data;
+    reg [4:0]  id_ex_rs1_addr;
+    reg [4:0]  id_ex_rs2_addr;
+    reg [4:0]  id_ex_rd_addr;
+    reg        id_ex_reg_wen;
+    reg        id_ex_alu_src1;
+    reg        id_ex_alu_src2;
+    reg [2:0]  id_ex_alu_opsel;
+    reg        id_ex_alu_sub;
+    reg        id_ex_alu_unsigned;
+    reg        id_ex_alu_arith;
+    reg [2:0]  id_ex_funct3;
+    reg        id_ex_mem_ren;
+    reg        id_ex_mem_wen;
+    reg [1:0]  id_ex_wb_mux;
+    reg        id_ex_branch;
+    reg        id_ex_jump;
+    reg        id_ex_jalr;
+    reg        id_ex_halt;
+
+    // EX stage
+    wire [31:0] ex_alu_result;
+    wire [31:0] ex_next_pc;
+    wire        ex_control_redirect;
+
+    ex_stage ex_stage_inst (
+        .i_valid(id_ex_valid),
+        .i_pc(id_ex_pc),
+        .i_next_pc_seq(id_ex_next_pc_seq),
+        .i_imm(id_ex_imm),
+        .i_rs1_data(id_ex_rs1_data),
+        .i_rs2_data(id_ex_rs2_data),
+        .i_alu_src1(id_ex_alu_src1),
+        .i_alu_src2(id_ex_alu_src2),
+        .i_alu_opsel(id_ex_alu_opsel),
+        .i_alu_sub(id_ex_alu_sub),
+        .i_alu_unsigned(id_ex_alu_unsigned),
+        .i_alu_arith(id_ex_alu_arith),
+        .i_funct3(id_ex_funct3),
+        .i_branch(id_ex_branch),
+        .i_jump(id_ex_jump),
+        .i_jalr(id_ex_jalr),
+        .o_alu_result(ex_alu_result),
+        .o_next_pc(ex_next_pc),
+        .o_control_redirect(ex_control_redirect)
+    );
+
+    // EX/MEM pipeline register
+    reg        ex_mem_valid;
+    reg [31:0] ex_mem_pc;
+    reg [31:0] ex_mem_inst;
+    reg [31:0] ex_mem_next_pc;
+    reg [4:0]  ex_mem_rs1_addr;
+    reg [4:0]  ex_mem_rs2_addr;
+    reg [31:0] ex_mem_rs1_data;
+    reg [31:0] ex_mem_rs2_data;
+    reg [4:0]  ex_mem_rd_addr;
+    reg        ex_mem_reg_wen;
+    reg [1:0]  ex_mem_wb_mux;
+    reg [31:0] ex_mem_alu_result;
+    reg [31:0] ex_mem_imm;
+    reg        ex_mem_mem_ren;
+    reg        ex_mem_mem_wen;
+    reg [2:0]  ex_mem_funct3;
+    reg        ex_mem_halt;
+
+    // MEM stage
+    wire [31:0] mem_load_data;
+    wire [3:0]  mem_dmem_mask;
+    wire [31:0] mem_dmem_wdata;
+
+    mem_stage mem_stage_inst (
+        .i_valid(ex_mem_valid),
+        .i_alu_result(ex_mem_alu_result),
+        .i_rs2_data(ex_mem_rs2_data),
+        .i_mem_ren(ex_mem_mem_ren),
+        .i_mem_wen(ex_mem_mem_wen),
+        .i_funct3(ex_mem_funct3),
+        .i_dmem_rdata(i_dmem_rdata),
+        .o_dmem_addr(o_dmem_addr),
+        .o_dmem_ren(o_dmem_ren),
+        .o_dmem_wen(o_dmem_wen),
+        .o_dmem_mask(o_dmem_mask),
+        .o_dmem_wdata(o_dmem_wdata),
+        .o_load_data(mem_load_data),
+        .o_mem_dmem_mask(mem_dmem_mask),
+        .o_mem_dmem_wdata(mem_dmem_wdata)
+    );
+
+    // MEM/WB pipeline register
+    reg        mem_wb_valid;
+    reg [31:0] mem_wb_pc;
+    reg [31:0] mem_wb_inst;
+    reg [31:0] mem_wb_next_pc;
+    reg [4:0]  mem_wb_rs1_addr;
+    reg [4:0]  mem_wb_rs2_addr;
+    reg [31:0] mem_wb_rs1_data;
+    reg [31:0] mem_wb_rs2_data;
+    reg [4:0]  mem_wb_rd_addr;
+    reg        mem_wb_reg_wen;
+    reg [1:0]  mem_wb_wb_mux;
+    reg [31:0] mem_wb_alu_result;
+    reg [31:0] mem_wb_load_data;
+    reg [31:0] mem_wb_imm;
+    reg        mem_wb_halt;
+    reg [31:0] mem_wb_dmem_addr;
+    reg        mem_wb_dmem_ren;
+    reg        mem_wb_dmem_wen;
+    reg [3:0]  mem_wb_dmem_mask;
+    reg [31:0] mem_wb_dmem_rdata;
+    reg [31:0] mem_wb_dmem_wdata;
+
+    // WB stage
+    wb_stage wb_stage_inst (
+        .i_valid(mem_wb_valid),
+        .i_reg_wen(mem_wb_reg_wen),
+        .i_rd_addr(mem_wb_rd_addr),
+        .i_wb_mux(mem_wb_wb_mux),
+        .i_alu_result(mem_wb_alu_result),
+        .i_load_data(mem_wb_load_data),
+        .i_pc(mem_wb_pc),
+        .i_imm(mem_wb_imm),
+        .o_wb_rd_addr(wb_rd_addr),
+        .o_wb_rd_data(wb_rd_data),
+        .o_wb_reg_wen(wb_reg_wen)
+    );
+
+    // Hazard detection (stall in ID)
+    wire hazard_from_id_ex_rs1 = id_ex_valid && id_ex_reg_wen && (id_ex_rd_addr != 5'd0) &&
+                                 id_uses_rs1 && (id_ex_rd_addr == id_rs1_addr);
+    wire hazard_from_id_ex_rs2 = id_ex_valid && id_ex_reg_wen && (id_ex_rd_addr != 5'd0) &&
+                                 id_uses_rs2 && (id_ex_rd_addr == id_rs2_addr);
+    wire hazard_from_ex_mem_rs1 = ex_mem_valid && ex_mem_reg_wen && (ex_mem_rd_addr != 5'd0) &&
+                                  id_uses_rs1 && (ex_mem_rd_addr == id_rs1_addr);
+    wire hazard_from_ex_mem_rs2 = ex_mem_valid && ex_mem_reg_wen && (ex_mem_rd_addr != 5'd0) &&
+                                  id_uses_rs2 && (ex_mem_rd_addr == id_rs2_addr);
+
+    wire id_stall = if_id_valid &&
+                    (hazard_from_id_ex_rs1 || hazard_from_id_ex_rs2 ||
+                     hazard_from_ex_mem_rs1 || hazard_from_ex_mem_rs2);
+
+    // Sequential state updates
     always @(posedge i_clk) begin
         if (i_rst) begin
-            pc <= RESET_ADDR;
+            // Reset everything
+            if_pc <= RESET_ADDR;
+            if_id_valid <= 1'b0;
+            id_ex_valid <= 1'b0;
+            ex_mem_valid <= 1'b0;
+            mem_wb_valid <= 1'b0;
         end else begin
-            pc <= next_pc;
+            // PC update
+            if (ex_control_redirect) begin
+                if_pc <= ex_next_pc;
+            end else if (!id_stall) begin
+                if_pc <= if_pc_plus_4;
+            end
+
+            // IF/ID update: hold on stall, flush on redirect
+            if (ex_control_redirect) begin
+                if_id_valid <= 1'b0;
+                if_id_pc <= 32'd0;
+                if_id_inst <= 32'd0;
+            end else if (!id_stall) begin
+                if_id_valid <= 1'b1;
+                if_id_pc <= if_pc;
+                if_id_inst <= if_inst;
+            end
+
+            // ID/EX update: bubble on stall and on redirect
+            if (ex_control_redirect || id_stall || !if_id_valid) begin
+                id_ex_valid <= 1'b0;
+                id_ex_pc <= 32'd0;
+                id_ex_inst <= 32'd0;
+                id_ex_next_pc_seq <= 32'd0;
+                id_ex_imm <= 32'd0;
+                id_ex_rs1_data <= 32'd0;
+                id_ex_rs2_data <= 32'd0;
+                id_ex_rs1_addr <= 5'd0;
+                id_ex_rs2_addr <= 5'd0;
+                id_ex_rd_addr <= 5'd0;
+                id_ex_reg_wen <= 1'b0;
+                id_ex_alu_src1 <= 1'b0;
+                id_ex_alu_src2 <= 1'b0;
+                id_ex_alu_opsel <= 3'd0;
+                id_ex_alu_sub <= 1'b0;
+                id_ex_alu_unsigned <= 1'b0;
+                id_ex_alu_arith <= 1'b0;
+                id_ex_funct3 <= 3'd0;
+                id_ex_mem_ren <= 1'b0;
+                id_ex_mem_wen <= 1'b0;
+                id_ex_wb_mux <= 2'd0;
+                id_ex_branch <= 1'b0;
+                id_ex_jump <= 1'b0;
+                id_ex_jalr <= 1'b0;
+                id_ex_halt <= 1'b0;
+            end else begin
+                id_ex_valid <= 1'b1;
+                id_ex_pc <= if_id_pc;
+                id_ex_inst <= if_id_inst;
+                id_ex_next_pc_seq <= if_id_pc + 32'd4;
+                id_ex_imm <= id_imm;
+                id_ex_rs1_data <= id_rs1_data;
+                id_ex_rs2_data <= id_rs2_data;
+                id_ex_rs1_addr <= id_rs1_addr;
+                id_ex_rs2_addr <= id_rs2_addr;
+                id_ex_rd_addr <= id_rd_addr;
+                id_ex_reg_wen <= id_reg_wen;
+                id_ex_alu_src1 <= id_alu_src1;
+                id_ex_alu_src2 <= id_alu_src2;
+                id_ex_alu_opsel <= id_alu_opsel;
+                id_ex_alu_sub <= id_alu_sub;
+                id_ex_alu_unsigned <= id_alu_unsigned;
+                id_ex_alu_arith <= id_alu_arith;
+                id_ex_funct3 <= id_funct3;
+                id_ex_mem_ren <= id_mem_ren;
+                id_ex_mem_wen <= id_mem_wen;
+                id_ex_wb_mux <= id_wb_mux;
+                id_ex_branch <= id_branch;
+                id_ex_jump <= id_jump;
+                id_ex_jalr <= id_jalr;
+                id_ex_halt <= id_halt;
+            end
+
+            // EX/MEM update
+            ex_mem_valid <= id_ex_valid;
+            ex_mem_pc <= id_ex_pc;
+            ex_mem_inst <= id_ex_inst;
+            ex_mem_next_pc <= ex_next_pc;
+            ex_mem_rs1_addr <= id_ex_rs1_addr;
+            ex_mem_rs2_addr <= id_ex_rs2_addr;
+            ex_mem_rs1_data <= id_ex_rs1_data;
+            ex_mem_rs2_data <= id_ex_rs2_data;
+            ex_mem_rd_addr <= id_ex_rd_addr;
+            ex_mem_reg_wen <= id_ex_reg_wen;
+            ex_mem_wb_mux <= id_ex_wb_mux;
+            ex_mem_alu_result <= ex_alu_result;
+            ex_mem_imm <= id_ex_imm;
+            ex_mem_mem_ren <= id_ex_mem_ren;
+            ex_mem_mem_wen <= id_ex_mem_wen;
+            ex_mem_funct3 <= id_ex_funct3;
+            ex_mem_halt <= id_ex_halt;
+
+            // MEM/WB update
+            mem_wb_valid <= ex_mem_valid;
+            mem_wb_pc <= ex_mem_pc;
+            mem_wb_inst <= ex_mem_inst;
+            mem_wb_next_pc <= ex_mem_next_pc;
+            mem_wb_rs1_addr <= ex_mem_rs1_addr;
+            mem_wb_rs2_addr <= ex_mem_rs2_addr;
+            mem_wb_rs1_data <= ex_mem_rs1_data;
+            mem_wb_rs2_data <= ex_mem_rs2_data;
+            mem_wb_rd_addr <= ex_mem_rd_addr;
+            mem_wb_reg_wen <= ex_mem_reg_wen;
+            mem_wb_wb_mux <= ex_mem_wb_mux;
+            mem_wb_alu_result <= ex_mem_alu_result;
+            mem_wb_load_data <= mem_load_data;
+            mem_wb_imm <= ex_mem_imm;
+            mem_wb_halt <= ex_mem_halt;
+            mem_wb_dmem_addr <= {ex_mem_alu_result[31:2], 2'b00};
+            mem_wb_dmem_ren <= ex_mem_mem_ren;
+            mem_wb_dmem_wen <= ex_mem_mem_wen;
+            mem_wb_dmem_mask <= mem_dmem_mask;
+            mem_wb_dmem_rdata <= i_dmem_rdata;
+            mem_wb_dmem_wdata <= mem_dmem_wdata;
         end
     end
 
-    // Instruction Fetch
-    assign o_imem_raddr = pc;
-    wire[31:0] inst = i_imem_rdata;
-
-    // Decode
-    wire[6:0] opcode = inst[6:0];
-    wire[2:0] funct3 = inst[14:12];
-    wire[6:0] funct7 = inst[31:25];
-    wire[4:0] rs1_addr = inst[19:15];
-    wire[4:0] rs2_addr = inst[24:20];
-    wire[4:0] rd_addr = inst[11:7];
-
-    wire reg_wen, alu_src1, alu_src2, mem_ren, mem_wen, branch, jump, jalr, halt;
-    wire[2:0] alu_opsel;
-    wire alu_sub, alu_unsigned, alu_arith;
-    wire[5:0] imm_format;
-    wire[1:0] wb_mux;
-
-    control_unit ctrl (
-        .i_opcode(opcode),
-        .i_funct3(funct3),
-        .i_funct7(funct7),
-        .o_reg_wen(reg_wen),
-        .o_alu_src1(alu_src1),
-        .o_alu_src2(alu_src2),
-        .o_alu_opsel(alu_opsel),
-        .o_alu_sub(alu_sub),
-        .o_alu_unsigned(alu_unsigned),
-        .o_alu_arith(alu_arith),
-        .o_imm_format(imm_format),
-        .o_mem_ren(mem_ren),
-        .o_mem_wen(mem_wen),
-        .o_wb_mux(wb_mux),
-        .o_branch(branch),
-        .o_jump(jump),
-        .o_jalr(jalr),
-        .o_halt(halt)
-    );
-
-    wire[31:0] imm;
-    imm imm_g (
-        .i_inst(inst),
-        .i_format(imm_format),
-        .o_immediate(imm)
-    );
-
-    wire[31:0] rs1_data, rs2_data;
-    reg[31:0] rd_data;
-    rf rf_inst (
-        .i_clk(i_clk),
-        .i_rst(i_rst),
-        .i_rs1_raddr(rs1_addr),
-        .o_rs1_rdata(rs1_data),
-        .i_rs2_raddr(rs2_addr),
-        .o_rs2_rdata(rs2_data),
-        .i_rd_waddr(rd_addr),
-        .i_rd_wdata(rd_data),
-        .i_rd_wen(reg_wen)
-    );
-
-    // Execute
-    wire[31:0] alu_op_a = (alu_src1) ? pc : rs1_data;
-    wire[31:0] alu_op_b = (alu_src2) ? imm : rs2_data;
-    wire[31:0] alu_result;
-    wire alu_eq, alu_slt;
-    alu alu_inst (
-        .i_opsel(alu_opsel),
-        .i_sub(alu_sub),
-        .i_unsigned(alu_unsigned),
-        .i_arith(alu_arith),
-        .i_op1(alu_op_a),
-        .i_op2(alu_op_b),
-        .o_result(alu_result),
-        .o_eq(alu_eq),
-        .o_slt(alu_slt)
-    );
-
-    // Branch/Jump Logic
-    reg take_branch;
-    always @(*) begin
-        case (funct3)
-            3'b000: take_branch = alu_eq; // beq
-            3'b001: take_branch = !alu_eq; // bne
-            3'b100: take_branch = alu_slt; // blt
-            3'b101: take_branch = !alu_slt; // bge
-            3'b110: take_branch = alu_slt; // bltu
-            3'b111: take_branch = !alu_slt; // bgeu
-            default: take_branch = 0;
-        endcase
-    end
-
-    wire[31:0] pc_plus_4 = pc + 4;
-    wire[31:0] branch_target = pc + imm;
-    wire[31:0] jalr_target = alu_result & ~32'h1;
-    assign next_pc = (jump) ? branch_target :
-                          (jalr) ? jalr_target :
-                          (branch && take_branch) ? branch_target :
-                          pc_plus_4;
-
-    // Memory Access
-    assign o_dmem_addr = {alu_result[31:2], 2'b00};
-    assign o_dmem_ren = mem_ren;
-    assign o_dmem_wen = mem_wen;
-    
-    // Memory Mask and Write Data
-    reg[3:0] dmem_mask;
-    reg[31:0] dmem_wdata;
-    always @(*) begin
-        dmem_mask = 4'b0000;
-        dmem_wdata = 32'd0;
-        case (mem_wen)
-            1'b1: begin
-                case (funct3)
-                    3'b000: begin // sb
-                        case (alu_result[1:0])
-                            2'b00: begin dmem_mask = 4'b0001; dmem_wdata = {{24{rs2_data[7]}}, rs2_data[7:0]}; end
-                            2'b01: begin dmem_mask = 4'b0010; dmem_wdata = {{16{rs2_data[7]}}, rs2_data[7:0], 8'b0}; end
-                            2'b10: begin dmem_mask = 4'b0100; dmem_wdata = {{8{rs2_data[7]}}, rs2_data[7:0], 16'b0}; end
-                            2'b11: begin dmem_mask = 4'b1000; dmem_wdata = {rs2_data[7:0], 24'b0}; end
-                            default: begin dmem_mask = 4'b0000; dmem_wdata = 32'b0; end
-                        endcase
-                    end
-                    3'b001: begin // sh
-                        case (alu_result[1])
-                            1'b0: begin dmem_mask = 4'b0011; dmem_wdata = {{16{rs2_data[15]}}, rs2_data[15:0]}; end
-                            1'b1: begin dmem_mask = 4'b1100; dmem_wdata = {rs2_data[15:0], 16'b0}; end
-                            default: begin dmem_mask = 4'b0000; dmem_wdata = 32'b0; end
-                        endcase
-                    end
-                    3'b010: begin // sw
-                        dmem_mask = 4'b1111;
-                        dmem_wdata = rs2_data;
-                    end
-                    default: ;
-                endcase
-            end
-            1'b0: begin
-                case (mem_ren)
-                    1'b1: begin
-                        case (funct3)
-                            3'b000, 3'b100: begin // lb, lbu
-                                case (alu_result[1:0])
-                                    2'b00: dmem_mask = 4'b0001;
-                                    2'b01: dmem_mask = 4'b0010;
-                                    2'b10: dmem_mask = 4'b0100;
-                                    2'b11: dmem_mask = 4'b1000;
-                                    default: dmem_mask = 4'b0000;
-                                endcase
-                            end
-                            3'b001, 3'b101: begin // lh, lhu
-                                case (alu_result[1])
-                                    1'b0: dmem_mask = 4'b0011;
-                                    1'b1: dmem_mask = 4'b1100;
-                                    default: dmem_mask = 4'b0000;
-                                endcase
-                            end
-                            3'b010: dmem_mask = 4'b1111; // lw
-                            default: ;
-                        endcase
-                    end
-                    default: ;
-                endcase
-            end
-            default: ;
-        endcase
-    end
-    assign o_dmem_mask = dmem_mask;
-    assign o_dmem_wdata = dmem_wdata;
-
-    // Load Data Processing
-    reg [31:0] load_data;
-    always @(*) begin
-        case (funct3)
-            3'b000: begin // lb
-                case (alu_result[1:0])
-                    2'b00: load_data = {{24{i_dmem_rdata[7]}}, i_dmem_rdata[7:0]};
-                    2'b01: load_data = {{24{i_dmem_rdata[15]}}, i_dmem_rdata[15:8]};
-                    2'b10: load_data = {{24{i_dmem_rdata[23]}}, i_dmem_rdata[23:16]};
-                    2'b11: load_data = {{24{i_dmem_rdata[31]}}, i_dmem_rdata[31:24]};
-                    default: load_data = 32'd0;
-                endcase
-            end
-            3'b001: begin // lh
-                case (alu_result[1:0])
-                    2'b00: load_data = {{16{i_dmem_rdata[15]}}, i_dmem_rdata[15:0]};
-                    2'b10: load_data = {{16{i_dmem_rdata[31]}}, i_dmem_rdata[31:16]};
-                    default: load_data = 32'd0;
-                endcase
-            end
-            3'b010: load_data = i_dmem_rdata; // lw
-
-            3'b100: begin // lbu
-                case (alu_result[1:0])
-                    2'b00: load_data = {24'd0, i_dmem_rdata[7:0]};
-                    2'b01: load_data = {24'd0, i_dmem_rdata[15:8]};
-                    2'b10: load_data = {24'd0, i_dmem_rdata[23:16]};
-                    2'b11: load_data = {24'd0, i_dmem_rdata[31:24]};
-                    default: load_data = 32'd0;
-                endcase
-            end
-            3'b101: begin // lhu
-                case (alu_result[1:0])
-                    2'b00: load_data = {16'd0, i_dmem_rdata[15:0]};
-                    2'b10: load_data = {16'd0, i_dmem_rdata[31:16]};
-                    default: load_data = 32'd0;
-                endcase
-            end
-
-            default: load_data = 32'd0;
-        endcase
-    end
-
-    // Writeback
-    always @(*) begin
-        case (wb_mux)
-            2'd0: rd_data = alu_result;
-            2'd1: rd_data = load_data;
-            2'd2: rd_data = pc_plus_4;
-            2'd3: rd_data = imm;
-            default: rd_data = 32'd0;
-        endcase
-    end
-
-    // Retire Interface
-    assign o_retire_valid = !i_rst;
-    assign o_retire_inst = inst;
-    assign o_retire_trap = 0;
-    assign o_retire_halt = halt;
-    assign o_retire_rs1_raddr = rs1_addr;
-    assign o_retire_rs2_raddr = rs2_addr;
-    assign o_retire_rs1_rdata = rs1_data;
-    assign o_retire_rs2_rdata = rs2_data;
-    assign o_retire_rd_waddr = (reg_wen) ? rd_addr : 5'd0;
-    assign o_retire_rd_wdata = rd_data;
-    assign o_retire_pc = pc;
-    assign o_retire_next_pc = next_pc;
-
+    // ----------------------------
+    // Retire interface (WB stage)
+    // ----------------------------
+    assign o_retire_valid = mem_wb_valid;
+    assign o_retire_inst = mem_wb_inst;
+    assign o_retire_trap = 1'b0;
+    assign o_retire_halt = mem_wb_halt;
+    assign o_retire_rs1_raddr = mem_wb_rs1_addr;
+    assign o_retire_rs2_raddr = mem_wb_rs2_addr;
+    assign o_retire_rs1_rdata = mem_wb_rs1_data;
+    assign o_retire_rs2_rdata = mem_wb_rs2_data;
+    assign o_retire_rd_waddr = (mem_wb_valid && mem_wb_reg_wen) ? mem_wb_rd_addr : 5'd0;
+    assign o_retire_rd_wdata = wb_rd_data;
+    assign o_retire_pc = mem_wb_pc;
+    assign o_retire_next_pc = mem_wb_next_pc;
+    assign o_retire_dmem_addr = mem_wb_dmem_addr;
+    assign o_retire_dmem_ren = mem_wb_dmem_ren;
+    assign o_retire_dmem_wen = mem_wb_dmem_wen;
+    assign o_retire_dmem_mask = mem_wb_dmem_mask;
+    assign o_retire_dmem_wdata = mem_wb_dmem_wdata;
+    assign o_retire_dmem_rdata = mem_wb_dmem_rdata;
 endmodule
 
 `default_nettype wire
